@@ -1,20 +1,13 @@
-from fastapi import FastAPI, Response, Depends, HTTPException
+from fastapi import APIRouter, Response, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from database import SessionLocal, engine, Base
-from models import EligibleCustomer, USSD_Session
+from .database import get_db
+from .models import EligibleCustomer, USSD_Session
 import psycopg2
 from psycopg2 import OperationalError
 from typing import Optional
 
-app = FastAPI()
-
-
-# Create tables on startup
-@app.on_event("startup")
-def startup_db():
-    Base.metadata.create_all(bind=engine)
-
+router = APIRouter()
 
 # Request Models
 class USSDRequest(BaseModel):
@@ -31,17 +24,8 @@ class CustomerCreate(BaseModel):
     loan_amount: Optional[float] = None
 
 
-# Database dependency
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 # Endpoint to create eligible customers
-@app.post("/customers/", status_code=201)
+@router.post("/customers/", status_code=201)
 def create_customer(customer: CustomerCreate, db: Session = Depends(get_db)):
     try:
         # Check if customer already exists
@@ -81,8 +65,8 @@ def create_customer(customer: CustomerCreate, db: Session = Depends(get_db)):
         )
 
 
-# USSD Endpoint (existing implementation)
-@app.post("/ussd", response_class=Response)
+# USSD Endpoint
+@router.post("/ussd", response_class=Response)
 async def ussd(request: USSDRequest, db: Session = Depends(get_db)):
     ussd_string = request.USSD_STRING.strip()
     session_id = request.SESSION_ID
