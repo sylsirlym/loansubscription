@@ -9,6 +9,8 @@ class EligibleCustomer(Base):
     id = Column(Integer, primary_key=True, index=True)
     msisdn = Column(String(20), unique=True, index=True, nullable=False,
                    comment="Mobile subscriber number in E.164 format")
+    name = Column(String(20), unique=True, index=True, nullable=False,
+                   comment="Customer name")
     loan_limit = Column(Float, nullable=False, comment="Maximum allowed loan amount")
     subscribed = Column(Boolean, default=False,
                       comment="Whether customer has subscribed to loan service")

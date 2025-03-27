@@ -1,11 +1,19 @@
-from fastapi import APIRouter, Response, Depends, HTTPException, Query
+import os
+from fastapi import APIRouter, Response, Depends, HTTPException, Query, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from .database import get_db
 from .models import EligibleCustomer, USSD_Session
+from .service import Service
 from sqlalchemy.exc import OperationalError
 from typing import Optional
+import traceback
+import pandas as pd
+import tempfile
 import logging
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -26,48 +34,6 @@ class CustomerCreate(BaseModel):
     subscribed: Optional[bool] = False
     loan_amount: Optional[float] = None
 
-
-# Endpoint to create eligible customers
-@router.post("/customers/", status_code=201)
-def create_customer(customer: CustomerCreate, db: Session = Depends(get_db)):
-    try:
-        # Check if customer already exists
-        existing_customer = db.query(EligibleCustomer).filter(
-            EligibleCustomer.msisdn == customer.msisdn
-        ).first()
-
-        if existing_customer:
-            raise HTTPException(
-                status_code=400,
-                detail="Customer with this MSISDN already exists"
-            )
-
-        # Create new customer
-        db_customer = EligibleCustomer(
-            msisdn=customer.msisdn,
-            loan_limit=customer.loan_limit,
-            subscribed=customer.subscribed,
-            loan_amount=customer.loan_amount
-        )
-
-        db.add(db_customer)
-        db.commit()
-        db.refresh(db_customer)
-
-        return {
-            "message": "Customer created successfully",
-            "msisdn": db_customer.msisdn,
-            "loan_limit": db_customer.loan_limit
-        }
-
-    except OperationalError as e:
-        db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail="Database operation failed"
-        )
-
-
 # USSD Endpoint
 @router.post("/ussd", response_class=Response)
 async def ussd(
@@ -76,8 +42,7 @@ async def ussd(
         service_code: str = Query(..., alias="service_code"),
         ussd_string: str = Query(..., alias="ussd_string"),
         db: Session = Depends(get_db)):
-    logger.info(
-        f"Received USSD request - Session ID:[{session_id}], MSISDN: [{msisdn}], Service Code: [{service_code}], USSD String: [{ussd_string}]")
+    logger.info(f"Received USSD request - Session ID:[{session_id}], MSISDN: [{msisdn}], Service Code: [{service_code}], USSD String: [{ussd_string}]")
 
     try:
         session = db.query(USSD_Session).filter(USSD_Session.session_id == session_id).first()
@@ -147,5 +112,68 @@ async def ussd(
     except OperationalError as e:
         db.rollback()
         return Response(content="END Database connection error.", media_type="text/plain")
-    # finally:
-    #     db.close()
+
+
+@router.post("/upload-excel/")
+async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    if not file.filename.endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=400, detail="Please upload an Excel file")
+    logger.info(f"Received Excel file - File name: [{file.filename}]")
+    try:
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            tmp.write(file.file.read())
+            tmp_path = tmp.name
+        df = pd.read_excel(tmp_path,engine="openpyxl")
+        df.fillna("", inplace=True)
+        eligible_customers = df.to_dict("records")
+
+        created_profiles = []
+        for eligible_customer in eligible_customers:
+            msisdn = str(eligible_customer.get("Phone", "")).strip()
+            if not msisdn:
+                continue  # Skip record if msisdn is empty or null
+
+            customer = EligibleCustomer(
+                name=eligible_customer.get("Name", ""),
+                loan_limit=float(eligible_customer.get("Amount", 0)),
+                msisdn=msisdn
+            )
+
+            existing_customer = db.query(EligibleCustomer).filter(EligibleCustomer.msisdn == customer.msisdn).first()
+            if not existing_customer:
+                db.add(customer)
+                created_profiles.append(customer)
+
+                # Send SMS after inserting the record
+                message_template = os.getenv("SMS_TEMPLATE")
+                customer_name = customer.name if customer.name else "Customer"
+                message = message_template.format(customer=customer_name)
+                Service.send_message(customer.msisdn, message)
+
+        db.commit()
+
+        return {
+            "message": f"Successfully uploaded {len(created_profiles)} profiles",
+            "filename": file.filename
+        }
+
+    except Exception as e:
+        error_message = f"Exception occurred while processing Excel file: {str(e)}"
+        stack_trace = traceback.format_exc()
+        logger.error(f"{error_message}\nStack Trace:\n{stack_trace}")
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
+
+    finally:
+        file.file.close()
+
+
+
+def safe_float(value):
+    try:
+        return float(value)
+    except Exception as e:
+        error_message = f"Exception occurred while processing creating a float: {str(e)}"
+        stack_trace = traceback.format_exc()
+        logger.error(f"{error_message}\nStack Trace:\n{stack_trace}")
+        return 0
