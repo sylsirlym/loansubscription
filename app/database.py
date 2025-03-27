@@ -6,33 +6,30 @@ from dotenv import load_dotenv
 from typing import Generator
 from contextlib import contextmanager
 
-# Load environment variables
 load_dotenv()
 
-# PostgreSQL Configuration - Added type hints and validation
-POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
-POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD") or "postgres"  # Explicit fallback
-POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
-POSTGRES_PORT = os.getenv("POSTGRES_PORT", "5432")
-POSTGRES_DB = os.getenv("POSTGRES_DB", "ussd_db")
+# MySQL Configuration
+MYSQL_USER = os.getenv("MYSQL_USER", "root")
+MYSQL_PASSWORD = os.getenv("MYSQL_PASSWORD", "")
+MYSQL_HOST = os.getenv("MYSQL_HOST", "localhost")
+MYSQL_PORT = os.getenv("MYSQL_PORT", "3306")
+MYSQL_DB = os.getenv("MYSQL_DB", "ussd_db")
 
-# Construct connection URL with validation
-if not all([POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_HOST, POSTGRES_DB]):
-    raise ValueError("Missing required PostgreSQL configuration")
-
+# Connection URL for MySQL
 SQLALCHEMY_DATABASE_URL = (
-    f"postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_HOST}:{POSTGRES_PORT}/{POSTGRES_DB}"
+    f"mysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DB}"
+    # For pymysql driver: f"mysql+pymysql://{MYSQL_USER}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DB}"
 )
 
-# Engine configuration with additional production-ready settings
+# Engine configuration
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
-    pool_pre_ping=True,          # Checks connections before use
-    pool_size=10,               # Maintain 10 connections
-    max_overflow=20,            # Allow up to 20 temporary connections
-    pool_recycle=3600,          # Recycle connections after 1 hour
-    pool_timeout=30,            # Wait 30 seconds for a connection
-    echo=False                  # Set to True for debugging SQL queries
+    pool_pre_ping=True,
+    pool_size=10,
+    max_overflow=20,
+    pool_recycle=3600,
+    pool_timeout=30,
+    echo=False
 )
 
 SessionLocal = sessionmaker(
@@ -45,13 +42,9 @@ SessionLocal = sessionmaker(
 Base = declarative_base()
 
 # Improved get_db with context manager and type hints
-@contextmanager
-def get_db() -> Generator[Session, None, None]:
+def get_db():
     db = SessionLocal()
     try:
         yield db
-    except Exception:
-        db.rollback()
-        raise
     finally:
         db.close()

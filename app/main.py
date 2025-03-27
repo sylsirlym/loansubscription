@@ -1,10 +1,9 @@
-from fastapi import APIRouter, Response, Depends, HTTPException
+from fastapi import APIRouter, Response, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from .database import get_db
 from .models import EligibleCustomer, USSD_Session
-import psycopg2
-from psycopg2 import OperationalError
+from sqlalchemy.exc import OperationalError
 from typing import Optional
 
 router = APIRouter()
@@ -67,11 +66,12 @@ def create_customer(customer: CustomerCreate, db: Session = Depends(get_db)):
 
 # USSD Endpoint
 @router.post("/ussd", response_class=Response)
-async def ussd(request: USSDRequest, db: Session = Depends(get_db)):
-    ussd_string = request.USSD_STRING.strip()
-    session_id = request.SESSION_ID
-    msisdn = request.MSISDN
-    service_code = request.SERVICE_CODE
+async def ussd(
+        session_id: str = Query(..., alias="session_id"),
+        msisdn: str = Query(..., alias="msisdn"),
+        service_code: str = Query(..., alias="service_code"),
+        ussd_string: str = Query(..., alias="ussd_string"),
+        db: Session = Depends(get_db)):
 
     try:
         session = db.query(USSD_Session).filter(USSD_Session.session_id == session_id).first()
@@ -141,5 +141,5 @@ async def ussd(request: USSDRequest, db: Session = Depends(get_db)):
     except OperationalError as e:
         db.rollback()
         return Response(content="END Database connection error.", media_type="text/plain")
-    finally:
-        db.close()
+    # finally:
+    #     db.close()
