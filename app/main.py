@@ -5,7 +5,11 @@ from .database import get_db
 from .models import EligibleCustomer, USSD_Session
 from sqlalchemy.exc import OperationalError
 from typing import Optional
+import logging
 
+# Configure logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Request Models
@@ -72,6 +76,8 @@ async def ussd(
         service_code: str = Query(..., alias="service_code"),
         ussd_string: str = Query(..., alias="ussd_string"),
         db: Session = Depends(get_db)):
+    logger.info(
+        f"Received USSD request - Session ID:[{session_id}], MSISDN: [{msisdn}], Service Code: [{service_code}], USSD String: [{ussd_string}]")
 
     try:
         session = db.query(USSD_Session).filter(USSD_Session.session_id == session_id).first()
