@@ -35,7 +35,7 @@ class CustomerCreate(BaseModel):
     loan_amount: Optional[float] = None
 
 # USSD Endpoint
-@router.post("/ussd", response_class=Response)
+@router.api_route("/ussd", methods=["GET", "POST"], response_class=Response)
 async def ussd(
         session_id: str = Query(..., alias="session_id"),
         msisdn: str = Query(..., alias="msisdn"),
