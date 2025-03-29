@@ -167,7 +167,7 @@ async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_d
                 # Send SMS after inserting the record
                 message_template = os.getenv("SMS_TEMPLATE")
                 customer_name = customer.name if customer.name else "Customer"
-                message = message_template.format(customer=customer_name)
+                message = message_template.format(customer=customer_name, token=customer.token)
                 Service.send_message(customer.msisdn, message)
 
         db.commit()
@@ -188,6 +188,23 @@ async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_d
         file.file.close()
 
 
+@router.get("/details/{token}")
+async def get_offer(
+        token: str,
+        db: Session = Depends(get_db)
+):
+    customer = db.query(EligibleCustomer).filter(
+        EligibleCustomer.token == token
+    ).first()
+
+    if not customer:
+        raise HTTPException(404, "Customer not found")
+
+    return {
+        "name": customer.name,
+        "msisdn": customer.msisdn,
+        "loanLimit": customer.loan_limit,
+    }
 
 def safe_float(value):
     try:

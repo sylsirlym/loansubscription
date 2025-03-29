@@ -1,6 +1,7 @@
 from sqlalchemy import Column, String, Float, Boolean, Integer, DateTime, func
 from .database import Base
 from datetime import datetime
+import uuid
 
 class EligibleCustomer(Base):
     __tablename__ = "eligible_customers"
@@ -9,6 +10,7 @@ class EligibleCustomer(Base):
     id = Column(Integer, primary_key=True, index=True)
     msisdn = Column(String(20), unique=True, index=True, nullable=False,
                    comment="Mobile subscriber number in E.164 format")
+    token = Column(String(36), unique=True, default=lambda: str(uuid.uuid4()))
     name = Column(String(20), unique=True, index=True, nullable=False,
                    comment="Customer name")
     loan_limit = Column(Float, nullable=False, comment="Maximum allowed loan amount")
