@@ -1,3 +1,4 @@
+import json
 import os
 from fastapi import APIRouter, Response, Depends, HTTPException, Query, UploadFile, File
 from pydantic import BaseModel
@@ -187,7 +188,28 @@ async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_d
     finally:
         file.file.close()
 
+@router.post("/update-subscription")
+def update_subscription(payload, db: Session = Depends(get_db)):
+    # Parse JSON payload
+    try:
+        data = json.loads(payload)
+    except ValueError as e:
+        return f"Error parsing JSON: {str(e)}"
 
+    # Validate fields
+    if "name" not in data or "msisdn" not in data or not data["name"] or not data["msisdn"]:
+        return "Invalid payload: name and msisdn are required and must be non-empty"
+    try:
+        customer = db.query(EligibleCustomer).filter(EligibleCustomer.msisdn == data.msisdn).first()
+        if not customer:
+            raise HTTPException(status_code=404, detail="MSISDN not found in database")
+        # Update subscribed field
+        customer.subscribed = True
+        db.commit()
+        db.refresh(customer)
+        return {"message": "Subscription updated successfully", "msisdn": payload.msisdn}
+    except Exception as e:
+        return f"Database error: {str(e)}"
 
 def safe_float(value):
     try:
