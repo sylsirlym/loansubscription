@@ -199,7 +199,8 @@ async def get_offer(
 
     if not customer:
         raise HTTPException(404, "Customer not found")
-
+    customer.subscribed = True
+    db.commit()
     return {
         "name": customer.name,
         "msisdn": customer.msisdn,
