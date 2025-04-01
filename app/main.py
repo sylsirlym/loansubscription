@@ -1,5 +1,7 @@
 import os
+from datetime import datetime
 from fastapi import APIRouter, Response, Depends, HTTPException, Query, UploadFile, File
+from typing import List
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from .database import get_db
@@ -34,6 +36,22 @@ class CustomerCreate(BaseModel):
     subscribed: Optional[bool] = False
     loan_amount: Optional[float] = None
 
+class LoanRequest(BaseModel):
+    msisdn: str
+    amount: float
+
+class CustomerResponse(BaseModel):
+    msisdn: str
+    name: str
+    loan_limit: float
+    subscribed: bool
+    loan_amount: Optional[float]
+    created_at: datetime
+    updated_at: datetime
+    token: str
+
+    class Config:
+        orm_mode = True
 # USSD Endpoint
 @router.api_route("/ussd", methods=["GET", "POST"], response_class=Response)
 async def ussd(
@@ -134,7 +152,7 @@ async def ussd(
         return Response(content="END Database connection error.", media_type="text/plain")
 
 
-@router.post("/upload-excel/")
+@router.post("/eligible-customers")
 async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not file.filename.endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=400, detail="Please upload an Excel file")
@@ -206,6 +224,67 @@ async def get_offer(
         "msisdn": customer.msisdn,
         "loanLimit": customer.loan_limit,
     }
+
+
+@router.post("/request-loan")
+async def request_loan(
+        request: LoanRequest,
+        db: Session = Depends(get_db)
+):
+    try:
+        # 1. Find customer by MSISDN
+        customer = db.query(EligibleCustomer).filter(
+            EligibleCustomer.msisdn == request.msisdn
+        ).first()
+
+        if not customer:
+            raise HTTPException(
+                status_code=404,
+                detail="Customer not found"
+            )
+
+        # 2. Save loan amount
+        customer.loan_amount = request.amount
+        db.commit()
+
+        return {
+            "message": "Your loan request has been submitted",
+            "msisdn": request.msisdn,
+            "loan_amount": request.amount
+        }
+
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Loan request failed: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to update loan amount"
+        )
+
+@router.get("/customers", response_model=List[CustomerResponse])
+async def get_eligible_customers(
+        skip: int = Query(0, ge=0, description="Pagination offset"),
+        limit: int = Query(100, le=1000, description="Max records per page"),
+        db: Session = Depends(get_db)
+):
+    """
+    Returns paginated list of all eligible customers
+    """
+    try:
+        customers = db.query(EligibleCustomer) \
+            .order_by(EligibleCustomer.created_at.desc()) \
+            .offset(skip) \
+            .limit(limit) \
+            .all()
+
+        return customers
+
+    except Exception as e:
+        logger.error(f"Failed to fetch customers: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to retrieve customer records"
+        )
 
 def safe_float(value):
     try:
